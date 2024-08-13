@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -18,30 +17,6 @@ import (
 // go policeresponses.IPBlacklistKeeper()
 // ...
 // e.Logger.Fatal(e.Start(fmt.Sprintf("%s:%d", HostIP, HostPort)))
-
-type readblacklist struct {
-	ip   string
-	resp chan bool
-}
-
-type writeblacklist struct {
-	ip   string
-	resp chan bool
-}
-
-type writestats struct {
-	code int
-	ip   string
-	uri  string
-}
-
-// variables to manage the RESPONSEPOLICING infrastructure
-var (
-	blistwr = make(chan writeblacklist)
-	blistrd = make(chan readblacklist)
-	slistwr = make(chan writestats)
-	Emit    = func() *Emitter { return &Emitter{E: defaultemit} }()
-)
 
 // PoliceRequestAndResponse - track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
 func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
@@ -139,16 +114,11 @@ func ResponseStatsKeeper() {
 		BLACK1 = `IP address %s received a strike: StatusNotFound error for URI "%s"`
 		BLACK2 = `IP address %s received a strike: StatusInternalServerError for URI "%s"`
 		BLACK3 = `IP address %s received a strike: MethodNotAllowed for URI "%s"`
-		FYI200 = `StatusOK count is %d`
-		FRQ200 = 1000
-		FYI403 = `[%s] StatusForbidden count is %s. Last blocked was %s requesting "%s"`
-		FRQ403 = 100
-		FYI404 = `[%s] StatusNotFound count is %d`
-		FRQ404 = 100
-		FYI405 = `[%s] MethodNotAllowed count is %d`
-		FRQ405 = 5
-		FYI500 = `[%s] StatusInternalServerError count is %d.`
-		FRQ500 = 1
+		FYI200 = `StatusOK count is %s`
+		FYI403 = `StatusForbidden count is %s. Last blocked was %s requesting "%s"`
+		FYI404 = `StatusNotFound count is %s`
+		FYI405 = `MethodNotAllowed count is %s`
+		FYI500 = `StatusInternalServerError count is %s.`
 	)
 
 	var (
@@ -161,7 +131,8 @@ func ResponseStatsKeeper() {
 
 	warn := func(v int, frq int, fyi string) {
 		if v%frq == 0 {
-			Emit.E(fmt.Sprintf(fyi, v))
+			hl := fmt.Sprintf(Emit.Yel+"%d"+Emit.Rst, v)
+			Emit.E(fmt.Sprintf(fyi, hl))
 		}
 	}
 
@@ -179,81 +150,37 @@ func ResponseStatsKeeper() {
 	// NB: this loop will never exit
 	for {
 		status := <-slistwr
-		when := time.Now().Format(time.RFC822)
+		// when := time.Now().Format(time.RFC822)
 		switch status.code {
 		case 200:
 			TwoHundred++
-			warn(TwoHundred, FRQ200, FYI200)
+			warn(TwoHundred, NF.FRQ200, FYI200)
 		case 403:
 			// you are already on the blacklist...
 			FourOhThree++
 			// use of 'when' makes this different...
-			if FourOhThree%FRQ403 == 0 {
+			if FourOhThree%NF.FRQ403 == 0 {
 				hl := fmt.Sprintf(Emit.Yel+"%d"+Emit.Rst, FourOhThree)
-				Emit.E(fmt.Sprintf(FYI403, when, hl, status.ip, status.uri))
+				Emit.E(fmt.Sprintf(FYI403, hl, status.ip, status.uri))
 			}
 		case 404:
 			FourOhFour++
-			warn(FourOhFour, FRQ404, FYI404)
+			warn(FourOhFour, NF.FRQ404, FYI404)
 			blacklist(status, BLACK1)
 		case 405:
 			// these seem to come only from hostile scanners; it is a bug that needs fixing if a real user sees this
 			FourOhFive++
-			warn(FourOhFive, FRQ405, FYI405)
+			warn(FourOhFive, NF.FRQ405, FYI405)
 			blacklist(status, BLACK3)
 		case 500:
 			FiveHundred++
-			warn(FiveHundred, FRQ500, FYI500)
+			warn(FiveHundred, NF.FRQ500, FYI500)
 			blacklist(status, BLACK2)
 		default:
 			// do nothing: not interested
-			// 302 from "/reset/session"
-			// 101 from "/ws"
+			// 302 is uninteresting
+			// 101 from websocket is uninteresting
+			// ...
 		}
 	}
-}
-
-// Emitter - allows control over how/where the blacklist messages are seen
-type Emitter struct {
-	E   func(s string)
-	Col bool
-	Red string
-	Yel string
-	Rst string
-}
-
-func (e *Emitter) ColorOn() {
-	e.Red = "\033[38;5;160m" // Red3
-	e.Yel = "\033[38;5;143m" // DarkKhaki
-	e.Rst = "\033[0m"
-}
-
-func (e *Emitter) ColorOff() {
-	e.Red = "" // Red3
-	e.Yel = "" // DarkKhaki
-	e.Rst = ""
-}
-
-// defaultemit - just print the line to the terminal
-func defaultemit(s string) {
-	fmt.Println(s)
-}
-
-// emittofile - send output to a file instead; this is just an example, not really for use
-func emittofile(s string) {
-	var (
-		EFile  = "policeresponses-log.txt"
-		MyName = "policeresponses"
-	)
-	tn := time.Now().Format(time.RFC3339)
-	ms := fmt.Sprintf("[%s] [%s] %s\n", tn, MyName, s)
-	f, err := os.OpenFile(EFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	if _, err = f.WriteString(ms); err != nil {
-		panic(err)
-	}
-	return
 }
