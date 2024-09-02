@@ -11,10 +11,6 @@ import (
 //
 
 var (
-	blistwr = make(chan writeblacklist)
-	blistrd = make(chan readblacklist)
-	slistwr = make(chan writestats)
-
 	// Emit - how the messages are going to reach you
 	Emit = func() *Emitter { return &Emitter{E: defaultemit} }()
 
@@ -28,6 +24,16 @@ var (
 			FRQ500: 1,
 		}
 	}()
+
+	// StartBlack - []string of bad IPs; checked when IPBlacklistKeeper starts
+	StartBlack = []string{}
+
+	// AlwaysWhite - []string of good IPs; checked when IPBlacklistKeeper starts
+	AlwaysWhite = []string{}
+
+	blistwr = make(chan writeblacklist)
+	blistrd = make(chan readblacklist)
+	slistwr = make(chan writestats)
 )
 
 //

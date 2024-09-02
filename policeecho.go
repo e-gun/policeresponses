@@ -21,9 +21,9 @@ import (
 // PoliceRequestAndResponse - track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
 func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
 	const (
-		BLACK0 = `IP address %s was blacklisted: too many previous response code errors\n`
+		BLACK0 = `%s blacklisted: too many previous response code errors\n`
 		SLOWDN = 3
-		BLACK1 = `IP address %s received a strike: invalid request prefix in URI "%s"\n`
+		BLACK1 = `%s: invalid request prefix in URI "%s"\n`
 	)
 
 	return func(c echo.Context) error {
@@ -74,11 +74,20 @@ func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc
 func IPBlacklistKeeper() {
 	const (
 		FAILSALLOWED = 3
-		BLACK0       = `IP address %s was blacklisted: too many previous Response code errors; %d address(es) on the blacklist`
+		BLACK0       = `%s blacklisted: too many previous Response code errors; %d address(es) on the blacklist`
 	)
 
 	strikecount := make(map[string]int)
 	blacklist := make(map[string]struct{})
+	whitelist := make(map[string]struct{})
+
+	for _, w := range AlwaysWhite {
+		whitelist[w] = struct{}{}
+	}
+
+	for _, b := range StartBlack {
+		blacklist[b] = struct{}{}
+	}
 
 	// NB: this loop will never exit
 	// the channels are returning 'bool'
@@ -86,7 +95,9 @@ func IPBlacklistKeeper() {
 		select {
 		case rd := <-blistrd: // read from the blacklist
 			valid := true
-			if _, ok := blacklist[rd.ip]; ok {
+			if _, w := whitelist[rd.ip]; w {
+				// stop checking
+			} else if _, ok := blacklist[rd.ip]; ok {
 				// you are on the blacklist...
 				valid = false
 			}
@@ -111,9 +122,9 @@ func IPBlacklistKeeper() {
 // ResponseStatsKeeper - log echo responses
 func ResponseStatsKeeper() {
 	const (
-		BLACK1 = `IP address %s received a strike: StatusNotFound error for URI "%s"`
-		BLACK2 = `IP address %s received a strike: StatusInternalServerError for URI "%s"`
-		BLACK3 = `IP address %s received a strike: MethodNotAllowed for URI "%s"`
+		BLACK1 = `%s: StatusNotFound error for URI "%s"`
+		BLACK2 = `%s: StatusInternalServerError for URI "%s"`
+		BLACK3 = `%s: MethodNotAllowed for URI "%s"`
 		FYI200 = `StatusOK count is %s`
 		FYI403 = `StatusForbidden count is %s. Last blocked was %s requesting "%s"`
 		FYI404 = `StatusNotFound count is %s`

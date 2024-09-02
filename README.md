@@ -10,6 +10,8 @@ QUICKSTART
 e := echo.New()
 e.Use(policeresponses.PoliceRequestAndResponse)
 policeresponses.Emit.ColorOn()
+policeresponses.StartBlack = []string{ "1.1.1.1", "8.8.8.8" }
+policeresponses.AlwaysWhite = []string{ "127.0.0.1", "10.10.10.10" }
 go policeresponses.ResponseStatsKeeper()
 go policeresponses.IPBlacklistKeeper()
 ...
@@ -27,5 +29,13 @@ emit to a file? to screen? in color?
 [b] policeresponses.NF
 
 how often do you want updates on 404s, etc?
+
+[c] policeresponses.StartBlack
+
+[]string of bad IPs
+
+[d] policeresponses.AlwaysWhite
+
+[]string of good IPs
 
 ```
