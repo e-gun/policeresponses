@@ -21,9 +21,9 @@ import (
 // PoliceRequestAndResponse - track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
 func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
 	const (
-		BLACK0 = `%s blacklisted: too many previous response code errors\n`
+		BLACK0 = "%s blacklisted: too many previous response code errors\n"
 		SLOWDN = 3
-		BLACK1 = `%s: invalid request prefix in URI "%s"\n`
+		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
 	)
 
 	return func(c echo.Context) error {
@@ -74,7 +74,7 @@ func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc
 func IPBlacklistKeeper() {
 	const (
 		FAILSALLOWED = 3
-		BLACK0       = `%s blacklisted: too many previous Response code errors; %d address(es) on the blacklist`
+		BLACK0       = "%s blacklisted: too many errors; blacklist count now %d\n"
 	)
 
 	strikecount := make(map[string]int)
@@ -122,14 +122,14 @@ func IPBlacklistKeeper() {
 // ResponseStatsKeeper - log echo responses
 func ResponseStatsKeeper() {
 	const (
-		BLACK1 = `%s: StatusNotFound error for URI "%s"`
-		BLACK2 = `%s: StatusInternalServerError for URI "%s"`
-		BLACK3 = `%s: MethodNotAllowed for URI "%s"`
-		FYI200 = `StatusOK count is %s`
-		FYI403 = `StatusForbidden count is %s. Last blocked was %s requesting "%s"`
-		FYI404 = `StatusNotFound count is %s`
-		FYI405 = `MethodNotAllowed count is %s`
-		FYI500 = `StatusInternalServerError count is %s.`
+		BLACK1 = "%s: StatusNotFound error for URI '%s'\n"
+		BLACK2 = "%s: StatusInternalServerError for URI '%s'\n"
+		BLACK3 = "%s: MethodNotAllowed for URI '%s'\n"
+		FYI200 = "StatusOK count is %s\n"
+		FYI403 = "StatusForbidden count is %s. Last blocked was %s requesting '%s'\n"
+		FYI404 = "StatusNotFound count is %s\n"
+		FYI405 = "MethodNotAllowed count is %s\n"
+		FYI500 = "StatusInternalServerError count is %s\n"
 	)
 
 	var (
