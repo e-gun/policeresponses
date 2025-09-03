@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	// FAILSALLOWED sets the number of bad requests you will accept before assigning someone to the blacklist
+	FAILSALLOWED = 5
+)
+
 // QUICKSTART
 
 // e := echo.New()
@@ -73,8 +78,7 @@ func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc
 // IPBlacklistKeeper - read/write to the blacklist
 func IPBlacklistKeeper() {
 	const (
-		FAILSALLOWED = 3
-		BLACK0       = "%s blacklisted: too many errors; blacklist count now %d\n"
+		BLACK0 = "%s blacklisted: too many errors; blacklist count now %d\n"
 	)
 
 	strikecount := make(map[string]int)
