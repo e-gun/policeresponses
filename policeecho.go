@@ -1,17 +1,21 @@
 package policeresponses
 
 import (
+	"errors"
 	"fmt"
-	"github.com/labstack/echo/v4"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/labstack/echo/v5"
 )
 
 const (
 	// FAILSALLOWED sets the number of bad requests you will accept before assigning someone to the blacklist
 	FAILSALLOWED = 5
 )
+
+var PoliceRequestAndResponse = PoliceRequestAndResponseV5
 
 // QUICKSTART
 
@@ -23,15 +27,67 @@ const (
 // ...
 // e.Logger.Fatal(e.Start(fmt.Sprintf("%s:%d", HostIP, HostPort)))
 
-// PoliceRequestAndResponse - track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
-func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
+// PoliceRequestAndResponseV4 - echo v4; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
+//func PoliceRequestAndResponseV4(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
+//	const (
+//		BLACK0 = "%s blacklisted: too many previous response code errors\n"
+//		SLOWDN = 3
+//		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
+//	)
+//
+//	return func(c echo.Context) error {
+//		// presumed guilty: 403
+//		registerresult := writestats{
+//			code: 403,
+//			ip:   c.RealIP(),
+//			uri:  c.Request().RequestURI,
+//		}
+//
+//		// already known to be bad?
+//		checkblacklist := readblacklist{ip: c.RealIP(), resp: make(chan bool)}
+//		blistrd <- checkblacklist
+//		ok := <-checkblacklist.resp
+//
+//		// is something like 'http://journalseek.net/' in the request?
+//		rq := c.Request().RequestURI
+//		if strings.HasPrefix(rq, "http:") || strings.HasPrefix(rq, "https:") {
+//			ok = false
+//			addtoblacklist := writeblacklist{ip: c.RealIP(), resp: make(chan bool)}
+//			blistwr <- addtoblacklist
+//			white := <-addtoblacklist.resp
+//			if !white {
+//				fmt.Printf(BLACK1, c.RealIP(), rq)
+//			}
+//		}
+//
+//		if !ok {
+//			// register a 403
+//			slistwr <- registerresult
+//			time.Sleep(SLOWDN * time.Second)
+//			e := echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf(BLACK0, c.RealIP()))
+//			return e
+//		} else {
+//			// do this before setting c.Response().Status or you will always get "200"
+//			if err := nextechohandler(c); err != nil {
+//				c.Error(err)
+//			}
+//			// register some other result code
+//			registerresult.code = c.Response().Status
+//			slistwr <- registerresult
+//			return nil
+//		}
+//	}
+//}
+
+// PoliceRequestAndResponseV5 - echo v5; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
+func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
 	const (
 		BLACK0 = "%s blacklisted: too many previous response code errors\n"
 		SLOWDN = 3
 		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
 	)
 
-	return func(c echo.Context) error {
+	return func(c *echo.Context) error {
 		// presumed guilty: 403
 		registerresult := writestats{
 			code: 403,
@@ -63,12 +119,18 @@ func PoliceRequestAndResponse(nextechohandler echo.HandlerFunc) echo.HandlerFunc
 			e := echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf(BLACK0, c.RealIP()))
 			return e
 		} else {
-			// do this before setting c.Response().Status or you will always get "200"
-			if err := nextechohandler(c); err != nil {
-				c.Error(err)
+			var sc echo.HTTPStatusCoder
+			status := http.StatusInternalServerError
+			err := nextechohandler(c)
+
+			if noerror := errors.As(err, &sc); noerror {
+				status = sc.StatusCode()
+			} else {
+				c.Response().WriteHeader(status)
 			}
+
 			// register some other result code
-			registerresult.code = c.Response().Status
+			registerresult.code = status
 			slistwr <- registerresult
 			return nil
 		}
