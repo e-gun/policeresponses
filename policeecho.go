@@ -79,12 +79,12 @@ var PoliceRequestAndResponse = PoliceRequestAndResponseV5
 //	}
 //}
 
-// PoliceRequestAndResponseV5 - echo v5; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
 func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
 	const (
-		BLACK0 = "%s blacklisted: too many previous response code errors\n"
-		SLOWDN = 3
-		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
+		BLACK0  = "%s blacklisted: too many previous response code errors\n"
+		SLOWDN  = 3
+		BLACK1  = "%s: invalid request prefix in URI '%s'\n"
+		WARNING = "PoliceRequestAndResponse failed to 'echo.UnwrapResponse' for '%s'"
 	)
 
 	return func(c *echo.Context) error {
@@ -119,19 +119,35 @@ func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFu
 			e := echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf(BLACK0, c.RealIP()))
 			return e
 		} else {
-			var sc echo.HTTPStatusCoder
+			// assume failure...
 			status := http.StatusInternalServerError
+
+			// execute the next function now so that the context holds the right response code
+			// otherwise you will always get `200`
 			err := nextechohandler(c)
 
-			if noerror := errors.As(err, &sc); noerror {
-				status = sc.StatusCode()
+			if err != nil {
+				// set status value to the error code
+				var sc echo.HTTPStatusCoder
+				if wasok := errors.As(err, &sc); wasok {
+					status = sc.StatusCode()
+				}
 			} else {
-				c.Response().WriteHeader(status)
+				// set status value to the success code
+				rw, uErr := echo.UnwrapResponse(c.Response())
+				if uErr == nil {
+					status = rw.Status
+				} else {
+					// status is pre-set as http.StatusInternalServerError
+					// but that might not be correct?
+					// also not sure how you can really get here
+				}
 			}
 
-			// register some other result code
 			registerresult.code = status
 			slistwr <- registerresult
+
+			// fmt.Println(registerresult)
 			return nil
 		}
 	}
