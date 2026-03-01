@@ -2,4 +2,4 @@ module github.com/e-gun/policeresponses
 
 go 1.25.0
 
-require github.com/labstack/echo/v5 v5.0.2
+require github.com/labstack/echo/v5 v5.0.4

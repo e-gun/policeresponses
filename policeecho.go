@@ -1,7 +1,6 @@
 package policeresponses
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,76 +14,13 @@ const (
 	FAILSALLOWED = 5
 )
 
-var PoliceRequestAndResponse = PoliceRequestAndResponseV5
-
-// QUICKSTART
-
-// e := echo.New()
-// e.Use(policeresponses.PoliceRequestAndResponse)
-// policeresponses.Emit.ColorOn()
-// go policeresponses.ResponseStatsKeeper()
-// go policeresponses.IPBlacklistKeeper()
-// ...
-// e.Logger.Fatal(e.Start(fmt.Sprintf("%s:%d", HostIP, HostPort)))
-
-// PoliceRequestAndResponseV4 - echo v4; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
-//func PoliceRequestAndResponseV4(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
-//	const (
-//		BLACK0 = "%s blacklisted: too many previous response code errors\n"
-//		SLOWDN = 3
-//		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
-//	)
-//
-//	return func(c echo.Context) error {
-//		// presumed guilty: 403
-//		registerresult := writestats{
-//			code: 403,
-//			ip:   c.RealIP(),
-//			uri:  c.Request().RequestURI,
-//		}
-//
-//		// already known to be bad?
-//		checkblacklist := readblacklist{ip: c.RealIP(), resp: make(chan bool)}
-//		blistrd <- checkblacklist
-//		ok := <-checkblacklist.resp
-//
-//		// is something like 'http://journalseek.net/' in the request?
-//		rq := c.Request().RequestURI
-//		if strings.HasPrefix(rq, "http:") || strings.HasPrefix(rq, "https:") {
-//			ok = false
-//			addtoblacklist := writeblacklist{ip: c.RealIP(), resp: make(chan bool)}
-//			blistwr <- addtoblacklist
-//			white := <-addtoblacklist.resp
-//			if !white {
-//				fmt.Printf(BLACK1, c.RealIP(), rq)
-//			}
-//		}
-//
-//		if !ok {
-//			// register a 403
-//			slistwr <- registerresult
-//			time.Sleep(SLOWDN * time.Second)
-//			e := echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf(BLACK0, c.RealIP()))
-//			return e
-//		} else {
-//			// do this before setting c.Response().Status or you will always get "200"
-//			if err := nextechohandler(c); err != nil {
-//				c.Error(err)
-//			}
-//			// register some other result code
-//			registerresult.code = c.Response().Status
-//			slistwr <- registerresult
-//			return nil
-//		}
-//	}
-//}
-
+// PoliceRequestAndResponseV5 - echo v5; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
 func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
 	const (
-		BLACK0  = "%s blacklisted: too many previous response code errors\n"
-		SLOWDN  = 3
-		BLACK1  = "%s: invalid request prefix in URI '%s'\n"
-		WARNING = "PoliceRequestAndResponse failed to 'echo.UnwrapResponse' for '%s'"
+		BLACK0 = "%s blacklisted: too many previous response code errors\n"
+		SLOWDN = 3
+		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
+		// WARNING = "PoliceRequestAndResponse failed to 'echo.UnwrapResponse' for '%s'"
 	)
 
 	return func(c *echo.Context) error {
@@ -113,43 +49,29 @@ func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFu
 		}
 
 		if !ok {
-			// register a 403
+			// you are on the list; register a 403; return without serving anything other than the error message
 			slistwr <- registerresult
 			time.Sleep(SLOWDN * time.Second)
 			e := echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf(BLACK0, c.RealIP()))
 			return e
-		} else {
-			// assume failure...
-			status := http.StatusInternalServerError
-
-			// execute the next function now so that the context holds the right response code
-			// otherwise you will always get `200`
-			err := nextechohandler(c)
-
-			if err != nil {
-				// set status value to the error code
-				var sc echo.HTTPStatusCoder
-				if wasok := errors.As(err, &sc); wasok {
-					status = sc.StatusCode()
-				}
-			} else {
-				// set status value to the success code
-				rw, uErr := echo.UnwrapResponse(c.Response())
-				if uErr == nil {
-					status = rw.Status
-				} else {
-					// status is pre-set as http.StatusInternalServerError
-					// but that might not be correct?
-					// also not sure how you can really get here
-				}
-			}
-
-			registerresult.code = status
-			slistwr <- registerresult
-
-			// fmt.Println(registerresult)
-			return nil
 		}
+
+		// so, not on the list, but what is the response code that we need to log...
+
+		// execute the next function now so that the context holds the right response code
+		// otherwise you will always get `200`
+		err := nextechohandler(c)
+
+		rw, status := echo.ResolveResponseStatus(c.Response(), err) // new function as of echo 5.0.3
+		if rw.Status != status {
+			// this check is just so we "use" the rw variable which we do not in fact need
+			// note that the two can differ: a 200 and a 404 on a request for "/zz", for example
+		}
+
+		registerresult.code = status
+		slistwr <- registerresult
+
+		return nil
 	}
 }
 
@@ -235,8 +157,8 @@ func ResponseStatsKeeper() {
 		blistwr <- wr
 		ok := <-wr.resp
 		if !ok {
-			hl := fmt.Sprintf(Emit.Yel+"%s"+Emit.Rst, status.ip)
-			Emit.E(fmt.Sprintf(BLACK1, hl, status.uri))
+			//hl := fmt.Sprintf(Emit.Yel+"%s"+Emit.Rst, status.ip)
+			//Emit.E(fmt.Sprintf(BLACK1, hl, status.uri))
 		}
 	}
 
@@ -276,4 +198,95 @@ func ResponseStatsKeeper() {
 			// ...
 		}
 	}
+}
+
+//
+// vars
+//
+
+var (
+	// Emit - how the messages are going to reach you
+	Emit = func() *Emitter { return &Emitter{E: defaultemit} }()
+
+	// NF - defaults for notification frequency
+	NF = func() *notiffrq {
+		return &notiffrq{
+			FRQ200: 1000,
+			FRQ403: 100,
+			FRQ404: 100,
+			FRQ405: 5,
+			FRQ500: 1,
+		}
+	}()
+
+	// StartBlack - []string of bad IPs; checked when IPBlacklistKeeper starts
+	StartBlack = []string{} // inspector will say "empty slice using a literal", but you have to do this one this way
+
+	// AlwaysWhite - []string of good IPs; checked when IPBlacklistKeeper starts
+	AlwaysWhite = []string{} // inspector will say "empty slice using a literal", but you have to do this one this way
+
+	blistwr = make(chan writeblacklist)
+	blistrd = make(chan readblacklist)
+	slistwr = make(chan writestats)
+)
+
+//
+// structs
+//
+
+type readblacklist struct {
+	ip   string
+	resp chan bool
+}
+
+type writeblacklist struct {
+	ip   string
+	resp chan bool
+}
+
+type writestats struct {
+	code int
+	ip   string
+	uri  string
+}
+
+// notiffrq - how often to notify per response code
+type notiffrq struct {
+	FRQ200 int
+	FRQ403 int
+	FRQ404 int
+	FRQ405 int
+	FRQ500 int
+}
+
+//
+// emitter
+//
+
+// Emitter - allows control over how/where the blacklist messages are seen
+type Emitter struct {
+	E   func(s string)
+	Col bool
+	Red string
+	Yel string
+	Rst string
+}
+
+// ColorOn - enable ansi escape color codes
+func (e *Emitter) ColorOn() {
+	e.Red = "\033[38;5;160m" // Red3
+	e.Yel = "\033[38;5;143m" // DarkKhaki
+	e.Rst = "\033[0m"
+}
+
+// ColorOff - disable ansi escape color codes
+func (e *Emitter) ColorOff() {
+	e.Red = ""
+	e.Yel = ""
+	e.Rst = ""
+}
+
+// defaultemit - just print the line to the terminal
+func defaultemit(s string) {
+	fmt.Println(s)
 }
