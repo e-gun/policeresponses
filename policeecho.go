@@ -14,19 +14,23 @@ const (
 	FAILSALLOWED = 5
 )
 
+var (
+	LockoutResponseFnc = BlacklistAndRedirect
+	// LockoutResponseCode - do people got a 403 or a 418?
+	LockoutResponseCode = 418
+)
+
 // PoliceRequestAndResponseV5 - echo v5; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
 func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFunc {
 	const (
-		BLACK0 = "%s blacklisted: too many previous response code errors\n"
-		SLOWDN = 3
 		BLACK1 = "%s: invalid request prefix in URI '%s'\n"
 		// WARNING = "PoliceRequestAndResponse failed to 'echo.UnwrapResponse' for '%s'"
 	)
 
 	return func(c *echo.Context) error {
-		// presumed guilty: 403
+		// presumed guilty; need to prove innocence
 		registerresult := writestats{
-			code: 403,
+			code: LockoutResponseCode,
 			ip:   c.RealIP(),
 			uri:  c.Request().RequestURI,
 		}
@@ -49,11 +53,9 @@ func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFu
 		}
 
 		if !ok {
-			// you are on the list; register a 403; return without serving anything other than the error message
+			// you are on the list; register a lockout; return without serving any real contents
 			slistwr <- registerresult
-			time.Sleep(SLOWDN * time.Second)
-			e := echo.NewHTTPError(http.StatusForbidden, fmt.Sprintf(BLACK0, c.RealIP()))
-			return e
+			return LockoutResponseFnc(c)
 		}
 
 		// so, not on the list, but what is the response code that we need to log...
@@ -78,7 +80,7 @@ func PoliceRequestAndResponseV5(nextechohandler echo.HandlerFunc) echo.HandlerFu
 // IPBlacklistKeeper - read/write to the blacklist
 func IPBlacklistKeeper() {
 	const (
-		BLACK0 = "%s blacklisted: too many errors; blacklist count now %d\n"
+		BLACK0 = "(%s) %s blacklisted: too many errors; blacklist count now %d"
 	)
 
 	strikecount := make(map[string]int)
@@ -113,7 +115,8 @@ func IPBlacklistKeeper() {
 			} else if strikecount[wr.ip] >= FAILSALLOWED {
 				blacklist[wr.ip] = struct{}{}
 				hl := fmt.Sprintf(Emit.Red+"%s"+Emit.Rst, wr.ip)
-				Emit.E(fmt.Sprintf(BLACK0, hl, len(blacklist)))
+				now := time.Now().Format(time.DateTime)
+				Emit.E(fmt.Sprintf(BLACK0, now, hl, len(blacklist)))
 				ret = true
 			} else {
 				strikecount[wr.ip]++
@@ -133,15 +136,17 @@ func ResponseStatsKeeper() {
 		FYI403 = "StatusForbidden count is %s. Last blocked was %s requesting '%s'\n"
 		FYI404 = "StatusNotFound count is %s\n"
 		FYI405 = "MethodNotAllowed count is %s\n"
+		FYI418 = "I'm a teapot count is %s. Last blocked was %s requesting '%s'\n"
 		FYI500 = "StatusInternalServerError count is %s\n"
 	)
 
 	var (
-		TwoHundred  = 0
-		FourOhThree = 0
-		FourOhFour  = 0
-		FourOhFive  = 0
-		FiveHundred = 0
+		TwoHundred   = 0
+		FourOhThree  = 0
+		FourOhFour   = 0
+		FourOhFive   = 0
+		FourOneEight = 0
+		FiveHundred  = 0
 	)
 
 	warn := func(v int, frq int, fyi string) {
@@ -187,6 +192,14 @@ func ResponseStatsKeeper() {
 			FourOhFive++
 			warn(FourOhFive, NF.FRQ405, FYI405)
 			blacklist(status, BLACK3)
+		case 418:
+			// you are already on the blacklist...
+			FourOneEight++
+			// use of 'when' makes this different...
+			if FourOneEight%NF.FRQ418 == 0 {
+				hl := fmt.Sprintf(Emit.Yel+"%d"+Emit.Rst, FourOneEight)
+				Emit.E(fmt.Sprintf(FYI418, hl, status.ip, status.uri))
+			}
 		case 500:
 			FiveHundred++
 			warn(FiveHundred, NF.FRQ500, FYI500)
@@ -198,6 +211,36 @@ func ResponseStatsKeeper() {
 			// ...
 		}
 	}
+}
+
+func BlacklistAndRedirect(c *echo.Context) error {
+	// you are on the list; register a lockout; redirect this abusive person to his/her own box
+	err := c.Redirect(http.StatusSeeOther, "https://127.0.0.1")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func BlacklistAndSendError(c *echo.Context) error {
+	const (
+		SLOWDN = 3
+		BLACK0 = "%s blacklisted: too many previous response code errors"
+		BLACK2 = "%s has been blacklisted. This server refuses to brew coffee because it is, permanently, a teapot. Please stop sending invalid requests."
+	)
+
+	lrc := http.StatusForbidden
+	blacklistmsg := BLACK0
+
+	if LockoutResponseCode == 418 {
+		lrc = http.StatusTeapot
+		blacklistmsg = BLACK2
+	}
+
+	// you are on the list; register a lockout; return without serving anything other than the error message
+	time.Sleep(SLOWDN * time.Second)
+	e := echo.NewHTTPError(lrc, fmt.Sprintf(blacklistmsg, c.RealIP()))
+	return e
 }
 
 //
@@ -215,6 +258,7 @@ var (
 			FRQ403: 100,
 			FRQ404: 100,
 			FRQ405: 5,
+			FRQ418: 100,
 			FRQ500: 1,
 		}
 	}()
@@ -256,6 +300,7 @@ type notiffrq struct {
 	FRQ403 int
 	FRQ404 int
 	FRQ405 int
+	FRQ418 int
 	FRQ500 int
 }
 
