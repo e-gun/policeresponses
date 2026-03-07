@@ -18,6 +18,7 @@ var (
 	LockoutResponseFnc = BlacklistAndRedirect
 	// LockoutResponseCode - do people got a 403 or a 418?
 	LockoutResponseCode = 418
+	RedirectURL         = "https://127.0.0.1"
 )
 
 // PoliceRequestAndResponseV5 - echo v5; track Response code counts + block repeat 404 offenders; this is custom middleware for an *echo.Echo
@@ -215,7 +216,7 @@ func ResponseStatsKeeper() {
 
 func BlacklistAndRedirect(c *echo.Context) error {
 	// you are on the list; register a lockout; redirect this abusive person to his/her own box
-	err := c.Redirect(http.StatusSeeOther, "https://127.0.0.1")
+	err := c.Redirect(http.StatusSeeOther, RedirectURL)
 	if err != nil {
 		return err
 	}
