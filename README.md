@@ -38,4 +38,9 @@ how often do you want updates on 404s, etc?
 
 []string of good IPs
 
+[e]
+	LockoutResponseFnc = BlacklistAndRedirect
+	LockoutResponseCode = 418
+	RedirectURL         = "https://127.0.0.1"
+	
 ```
